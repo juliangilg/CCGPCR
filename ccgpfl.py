@@ -9,13 +9,13 @@ from check_shapes import check_shapes, inherit_check_shapes
 
 
 
-class multiClassMA_GCE(gpf.likelihoods.Likelihood):
+class multiClassMAFL(gpf.likelihoods.Likelihood):
     def __init__(
-        self, num_classes: int, num_ann: int, q: int) -> None:
+        self, num_classes: int, num_ann: int, alpha: int) -> None:
         super().__init__(input_dim=None, latent_dim=num_classes+num_ann, observation_dim=None)
         self.K = num_classes
         self.R = num_ann
-        self.q = q
+        self.alpha = alpha
 
     @inherit_check_shapes
     def _log_prob(self, X, F, Y):
@@ -23,12 +23,12 @@ class multiClassMA_GCE(gpf.likelihoods.Likelihood):
         iAnn = tf.where(Y == -1e20, tf.zeros_like(Y), tf.ones_like(Y))
         Yh   = tf.one_hot(tf.cast(Y-1, tf.int32), depth= self.K, axis=1)
         Yh   = tf.cast(Yh, tf.float64)
-        zeta = tf.repeat(tf.expand_dims((F[:,:self.K]), axis = -1), self.R, axis=-1)
+        zeta = tf.repeat(tf.expand_dims(tf.nn.softmax(F[:,:self.K]), axis = -1), self.R, axis=-1)
         lamb = tf.nn.sigmoid(F[:,self.K:])
 
-        CE = -tf.math.reduce_sum(Yh*self.log_softmax(zeta), axis=1)
+        CE = tf.math.reduce_sum(Yh*tf.math.log(zeta), axis=1)
 
-        return -tf.math.reduce_sum((lamb*CE + (1-lamb)*(1 - (self.K)**(self.q))), axis=1)/self.q
+        return -tf.math.reduce_sum((lamb*CE - (1-lamb)*np.log(self.K)), axis=1)
 
     def _variational_expectations(self, X, Fmu, Fvar, Y):
 
@@ -42,9 +42,9 @@ class multiClassMA_GCE(gpf.likelihoods.Likelihood):
 
 
         # E_{q(f_{1,n})...q(f_{K,n})}[log zeta]
-        Elog  = ndiag_mc(self.log_softmax, 100, m_f, v_f, False)# E[log(softmax(F))]
+        Elog  = ndiag_mc(self.focal, 400, m_f, v_f, False)# E[log(softmax(F))]
         Elog_ = tf.repeat(tf.expand_dims(Elog, axis = -1), self.R, axis=-1)
-        C_E   = -tf.math.reduce_sum((Yh*Elog_), axis = 1)
+        C_E   = tf.math.reduce_sum((Yh*Elog_), axis = 1)
 
 
         # E_{q(g_m^m)}[z_n^m]
@@ -52,7 +52,7 @@ class multiClassMA_GCE(gpf.likelihoods.Likelihood):
 
 
         #Variational Expectation ##########################################
-        return tf.math.reduce_sum((Eq_g*C_E + (1-Eq_g)*(1 - self.K**(self.q))), axis=1)/self.q
+        return tf.math.reduce_sum((Eq_g*C_E - (1-Eq_g)*tf.math.log(tf.cast(self.K, tf.float64))), axis=1)
 
     def _predict_mean_and_var(self, X, Fmu, Fvar):
         m_f, m_g = Fmu[:, :self.K], Fmu[:, self.K:]
@@ -69,8 +69,10 @@ class multiClassMA_GCE(gpf.likelihoods.Likelihood):
     def _predict_log_density(self, F):
         raise NotImplementedError
 
-    def log_softmax(self, F):
-        return (1 - (tf.nn.softmax(F))**(self.q))
+    def focal(self, F):
+        zeta = tf.nn.softmax(F)
+        zeta = tf.clip_by_value(zeta, 1e-6, 1.0-1e-6)
+        return (1-zeta)**(self.alpha)*tf.math.log(zeta)
 
     def softmax_2(self, F):
         return tf.math.square(tf.nn.softmax(F))
