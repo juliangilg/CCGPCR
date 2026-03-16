@@ -107,7 +107,7 @@ def multiple_annotators(R, NrP, Xtrain, ytrain):
   seed = 100
   np.random.seed(seed)
   iAnn = np.zeros((N, R), dtype=int) # this indicates if the annotator r labels the nth sample.
-  Nr = np.ones((R), dtype=int)*int(np.floor(N*NrP))
+  Nr = NrP
   for r in range(R):
       if r < R-1:
           indexR = np.random.permutation(range(N))[:Nr[r]]
