@@ -135,6 +135,7 @@ def multiple_annotators(R, NrP, Xtrain, ytrain):
 
   # Finally, if iAnn=0 we assign a reference value to indicate a missing value
   Vref = -1e-20
+  Y[iAnn] = Vref
 
   return Lam_r, Ytrain, iAnn, Vref
 
